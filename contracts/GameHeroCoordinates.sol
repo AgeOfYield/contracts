@@ -32,15 +32,52 @@ contract GameHeroCoordinates is AccessControl, Chunkable, UseWorld {
     Math2d.Point indexed chunk
   );
 
-  mapping(uint256 => mapping(uint256 => uint256)) internal coordinatesToUnits;
-  mapping(uint256 => Math2d.Point) internal unitsToCoordinates;
+  mapping(uint256 => mapping(uint256 => uint256)) internal coordinatesToHero;
+  mapping(uint256 => Math2d.Point) internal heroToCoordinates;
+  mapping(uint256 => uint32) internal _heroToMainlandId;
 
   function getTokenIdByCoordinates(Math2d.Point memory coordinates) public view returns(uint256) {
-    return coordinatesToUnits[coordinates.x][coordinates.y];
+    return coordinatesToHero[coordinates.x][coordinates.y];
   }
 
-  function getCoordinatesByTokenId(uint256 tokenId) public view returns(Math2d.Point memory) {
-    return unitsToCoordinates[tokenId];
+  function getCoordinates(uint256 tokenId) public view returns(Math2d.Point memory) {
+    require(hasRole(GAME_ROLE, _msgSender()), "GameHeroCoordinates: must have game role to get distance");
+
+    return heroToCoordinates[tokenId];
+  }
+
+  function calcDistancePow2(uint256 tokenId, Math2d.Point memory point2) public view returns(uint256) {
+    require(hasRole(GAME_ROLE, _msgSender()), "GameHeroCoordinates: must have game role to get distance");
+
+    Math2d.Point memory point1 = getCoordinates(tokenId);
+
+    return Math2d.distance2dPow2(point1, point2);
+  }
+
+  function calcHeroesDistancePow2(uint256 tokenId1, uint256 tokenId2) public view returns(uint256) {
+    require(hasRole(GAME_ROLE, _msgSender()), "GameHeroCoordinates: must have game role to get distance");
+
+    Math2d.Point memory point1 = getCoordinates(tokenId1);
+    Math2d.Point memory point2 = getCoordinates(tokenId2);
+
+    return Math2d.distance2dPow2(point1, point2);
+  }
+
+  function calcDistance(uint256 tokenId, Math2d.Point memory point2) public view returns(uint256) {
+    require(hasRole(GAME_ROLE, _msgSender()), "GameHeroCoordinates: must have game role to get distance");
+
+    Math2d.Point memory point1 = getCoordinates(tokenId);
+
+    return Math2d.distance2d(point1, point2);
+  }
+
+  function calcHeroesDistance(uint256 tokenId1, uint256 tokenId2) public view returns(uint256) {
+    require(hasRole(GAME_ROLE, _msgSender()), "GameHeroCoordinates: must have game role to get distance");
+
+    Math2d.Point memory point1 = getCoordinates(tokenId1);
+    Math2d.Point memory point2 = getCoordinates(tokenId2);
+
+    return Math2d.distance2d(point1, point2);
   }
 
   function getChunk(uint256 x1, uint256 y1) public view returns(uint256[] memory) {
@@ -48,7 +85,7 @@ contract GameHeroCoordinates is AccessControl, Chunkable, UseWorld {
     uint256 y2 = y1 + chunkSize;
     uint256 currentX;
     uint256 currentY;
-    uint256 countUnits = 0;
+    uint256 countUnits;
     
     uint256[] memory unitsFullArr = new uint256[](chunkSize * chunkSize);
 
@@ -63,17 +100,17 @@ contract GameHeroCoordinates is AccessControl, Chunkable, UseWorld {
       }
     }
 
-    uint256[] memory herosArr = new uint256[](countUnits);
+    uint256[] memory heroesArr = new uint256[](countUnits);
 
     for (uint256 index = 0; index < countUnits; index += 1) {
-      herosArr[index] = unitsFullArr[index];
+      heroesArr[index] = unitsFullArr[index];
     }
 
-    return herosArr;
+    return heroesArr;
   }
 
   function setHeroCoordinates(uint256 tokenId, Math2d.Point memory newCoordinates) external {
-    require(hasRole(GAME_ROLE, _msgSender()), "GameNftHeroCoordinatesStore: must have game role to set hero coordinates");
+    require(hasRole(GAME_ROLE, _msgSender()), "GameHeroCoordinates: must have game role to set hero coordinates");
 
     require(
       newCoordinates.x > 0
@@ -83,17 +120,24 @@ contract GameHeroCoordinates is AccessControl, Chunkable, UseWorld {
       , "You can't go outside the world"
     );
     require(
-      coordinatesToUnits[newCoordinates.x][newCoordinates.x] == 0
-      || coordinatesToUnits[newCoordinates.x][newCoordinates.x] == tokenId
+      coordinatesToHero[newCoordinates.x][newCoordinates.x] == 0
+      || coordinatesToHero[newCoordinates.x][newCoordinates.x] == tokenId
       , "There is someone standing there"
     );
 
-    require(world.getCell(newCoordinates.x, newCoordinates.y).mainlandId > 0);
+    uint32 currentMainlandId = _heroToMainlandId[tokenId];
 
-    Math2d.Point memory currentCoordinates = unitsToCoordinates[tokenId];
-    coordinatesToUnits[currentCoordinates.x][currentCoordinates.y] = 0;
-    coordinatesToUnits[newCoordinates.x][newCoordinates.y] = tokenId;
-    unitsToCoordinates[tokenId] = newCoordinates;
+    if (currentMainlandId == 0) {
+      currentMainlandId = world.getMainlandId(newCoordinates);
+      _heroToMainlandId[tokenId] = currentMainlandId;
+    }
+
+    require(world.isLand(newCoordinates, currentMainlandId));
+
+    Math2d.Point memory currentCoordinates = heroToCoordinates[tokenId];
+    delete coordinatesToHero[currentCoordinates.x][currentCoordinates.y];
+    coordinatesToHero[newCoordinates.x][newCoordinates.y] = tokenId;
+    heroToCoordinates[tokenId] = newCoordinates;
 
     emit UpdateHeroCoordinates(
       tokenId,
@@ -105,11 +149,13 @@ contract GameHeroCoordinates is AccessControl, Chunkable, UseWorld {
   }
 
   function removeTokenId(uint256 tokenId) public {
-    require(hasRole(GAME_ROLE, _msgSender()), "GameNftHeroCoordinatesStore: must have game role to remove hero");
+    require(hasRole(GAME_ROLE, _msgSender()), "GameHeroCoordinates: must have game role to remove hero");
 
-    Math2d.Point memory heroCoordinates = unitsToCoordinates[tokenId];
-    coordinatesToUnits[heroCoordinates.x][heroCoordinates.y] = 0;
-    unitsToCoordinates[tokenId] = Math2d.Point(0, 0);
+    Math2d.Point memory heroCoordinates = heroToCoordinates[tokenId];
+
+    delete coordinatesToHero[heroCoordinates.x][heroCoordinates.y];
+    delete heroToCoordinates[tokenId];
+    delete _heroToMainlandId[tokenId];
 
     emit RemoveHero(
       tokenId,
@@ -118,13 +164,13 @@ contract GameHeroCoordinates is AccessControl, Chunkable, UseWorld {
   }
 
   function setChunkSize(uint256 chunkSize) public {
-    require(hasRole(ADMIN_ROLE, _msgSender()), "GameNftHeroCoordinatesStore: must have admin role to set chunk size");
+    require(hasRole(ADMIN_ROLE, _msgSender()), "GameHeroCoordinates: must have admin role to set chunk size");
 
     _setChunkSize(chunkSize);
   }
 
   function setWorldAddress(address contractAddress) public {
-    require(hasRole(ADMIN_ROLE, _msgSender()), "GameNftHeroCoordinatesStore: must have admin role to set world contract address");
+    require(hasRole(ADMIN_ROLE, _msgSender()), "GameHeroCoordinates: must have admin role to set world contract address");
 
     _setWorldAddress(contractAddress);
   }

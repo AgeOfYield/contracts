@@ -2,14 +2,18 @@
 pragma solidity ^0.8.7;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "../utils/Owner.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract AgeOfYieldToken is ERC20("Age Of Yield", "AOY"), Owner {
+contract AgeOfYieldToken is ERC20("Age Of Yield", "AOY"), Ownable {
   constructor() {
-    _mint(msg.sender, 10**18 * 10* 9);
+    _mint(_msgSender(), 10**18 * 10 * 9);
   }
 
-  function burn(address fromAddress, uint256 amount) public isOwner {
+  function burn(address fromAddress, uint256 amount) public onlyOwner {
     _burn(fromAddress, amount);
+  }
+
+  function mint(uint256 amount) public onlyOwner {
+    _mint(_msgSender(), amount);
   }
 }

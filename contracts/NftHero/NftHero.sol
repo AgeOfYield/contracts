@@ -12,33 +12,17 @@ import "@openzeppelin/contracts/utils/Strings.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/utils/Context.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
+import "./abstract/HeroCharacteristics.sol";
 
 contract NftHero is
   AccessControlEnumerable,
   ERC721Enumerable,
   ERC721Burnable,
-  ERC721Pausable
+  ERC721Pausable,
+  HeroCharacteristics
 {
   using Strings for uint256;
   using SafeMath for uint256;
-
-  // Mapping token id to unit level
-  mapping(uint256 => uint256) internal _level;
-
-  // Mapping token id to unit race
-  mapping(uint256 => uint256) internal _race;
-
-  // Mapping token id to unit gender
-  mapping(uint256 => uint256) internal _gender;
-
-  // Mapping token id to unit faction
-  mapping(uint256 => uint256) internal _faction;
-
-  // Mapping token id to unit name
-  mapping(uint256 => string) internal _name;
-
-  // Mapping token id to unit name
-  mapping(uint256 => uint256) internal _score;
   
   struct HeroData {
     uint256 tokenId;
@@ -51,9 +35,17 @@ contract NftHero is
     string uri;
   }
 
-  uint256 _txFeeAmount = 0;
-  address _feeToken;
-  address _feeRecipient;
+  // Mapping token id to hero race
+  mapping(uint256 => uint256) internal _race;
+
+  // Mapping token id to hero gender
+  mapping(uint256 => uint256) internal _gender;
+
+  // Mapping token id to hero faction
+  mapping(uint256 => uint256) internal _faction;
+
+  // Mapping token id to hero name
+  mapping(uint256 => string) internal _name;
 
   using Counters for Counters.Counter;
 
@@ -62,6 +54,7 @@ contract NftHero is
   bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
   bytes32 public constant LEVEL_INCREMENTER_ROLE = keccak256("LEVEL_INCREMENTER_ROLE");
   bytes32 public constant SCORE_EDITOR_ROLE = keccak256("SCORE_EDITOR_ROLE");
+  bytes32 public constant VIEWER_OF_CHARACTERISTICS = keccak256("VIEWER_OF_CHARACTERISTICS");
 
   Counters.Counter private _tokenIdTracker;
 
@@ -81,7 +74,6 @@ contract NftHero is
     string memory baseTokenURI
   ) ERC721(name, symbol) {
     _baseTokenURI = baseTokenURI;
-    _feeRecipient = _msgSender();
 
     _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
 
@@ -90,6 +82,7 @@ contract NftHero is
     _setupRole(ADMIN_ROLE, _msgSender());
     _setupRole(LEVEL_INCREMENTER_ROLE, _msgSender());
     _setupRole(SCORE_EDITOR_ROLE, _msgSender());
+    _setupRole(VIEWER_OF_CHARACTERISTICS, _msgSender());
   }
 
   function _baseURI() internal view virtual override returns (string memory) {
@@ -105,7 +98,7 @@ contract NftHero is
     * - the caller must have the `ADMIN_ROLE`.
     */
   function setBaseUrl(string memory newBaseUrl) public {
-    require(hasRole(ADMIN_ROLE, _msgSender()), "NftUnit: must have admin role to change bas URI");
+    require(hasRole(ADMIN_ROLE, _msgSender()), "NftHero: must have admin role to change bas URI");
 
     _baseTokenURI = newBaseUrl;
   }
@@ -120,7 +113,7 @@ contract NftHero is
     * - the caller must have the `PAUSER_ROLE`.
     */
   function pause() public virtual {
-      require(hasRole(PAUSER_ROLE, _msgSender()), "NftUnit: must have pauser role to pause");
+      require(hasRole(PAUSER_ROLE, _msgSender()), "NftHero: must have pauser role to pause");
       _pause();
   }
 
@@ -134,7 +127,7 @@ contract NftHero is
     * - the caller must have the `PAUSER_ROLE`.
     */
   function unpause() public virtual {
-      require(hasRole(PAUSER_ROLE, _msgSender()), "NftUnit: must have pauser role to unpause");
+      require(hasRole(PAUSER_ROLE, _msgSender()), "NftHero: must have pauser role to unpause");
       _unpause();
   }
 
@@ -195,18 +188,19 @@ contract NftHero is
     uint256 race,
     uint256 gender,
     uint256 faction,
-    string memory name
-  ) public returns(uint256 tokenId) {
-    require(hasRole(MINTER_ROLE, _msgSender()), "NftUnit: must have minter role to mint");
+    string memory name,
+    Characteristics memory characteristics
+  ) public whenNotPaused returns(uint256 tokenId) {
+    require(hasRole(MINTER_ROLE, _msgSender()), "NftHero: must have minter role to mint");
 
     // Validate hero name
     bytes memory bName = bytes(name);
-    require(bName.length < 13 && bName.length > 3, "NftUnit: invalid heros name");
+    require(bName.length < 13 && bName.length > 3, "NftHero: invalid name of hero");
 
     for(uint i = 0; i < bName.length; i++){
       bytes1 char = bName[i];
 
-      require(char >= 0x61 && char <= 0x7A /* a-z */, "NftUnit: invalid heros name");
+      require(char >= 0x61 && char <= 0x7A /* a-z */, "NftHero: invalid name of hero");
     }
   
     // We cannot just use balanceOf to create the new tokenId because tokens
@@ -222,47 +216,134 @@ contract NftHero is
     _gender[tokenId] = gender;
     _faction[tokenId] = faction;
     _name[tokenId] = name;
+    _characteristics[tokenId] = characteristics;
   }
 
-  function transfer(
-    address to,
-    uint256 tokenId
-  ) public {
+  function transfer(address to, uint256 tokenId) public {
     _transfer(_msgSender(), to, tokenId);
   }
 
-  function safeTransfer(
-    address to,
-    uint256 tokenId,
-    bytes memory _data
-  ) public {
+  function safeTransfer(address to, uint256 tokenId, bytes memory _data) public {
     _safeTransfer(_msgSender(), to, tokenId, _data);
   }
 
   function getHero(uint256 _tokenId) public view returns(
     uint256 tokenId,
     uint256 level,
+    uint256 score,
     uint256 race,
     uint256 gender,
     uint256 faction,
     string memory name,
     string memory uri
   ) {
-    require(_exists(_tokenId), "NftUnit: data query for nonexistent token");
+    require(_exists(_tokenId), "NftHero: data query for nonexistent token");
+
+    tokenId = _tokenId;
+    level = _level[_tokenId];
+    score = _score[_tokenId];
+    race = _race[_tokenId];
+    gender = _gender[_tokenId];
+    faction = _faction[_tokenId];
+    name = _name[_tokenId];
+    uri = tokenURI(_tokenId);
 
     return (
-      _tokenId,
-      _level[_tokenId],
-      _race[_tokenId],
-      _gender[_tokenId],
-      _faction[_tokenId],
-      _name[_tokenId],
-      tokenURI(_tokenId)
+      tokenId,
+      level,
+      score,
+      race,
+      gender,
+      faction,
+      name,
+      uri
     );
   }
 
-  function getLevel(uint256 tokenId) public view returns(uint256) {
-    return _level[tokenId];
+  function getScore(uint256 tokenId) public view override returns(uint256) {
+    require(hasRole(VIEWER_OF_CHARACTERISTICS, _msgSender()), "NftHero: must have viewer of characteristics role to get attack");
+
+    return super.getScore(tokenId);
+  }
+
+  /**
+    * Requirements:
+    *
+    * - the caller must have the `VIEWER_OF_CHARACTERISTICS`.
+    */
+  function getAttack(uint256 tokenId) public view override returns(uint256) {
+    require(hasRole(VIEWER_OF_CHARACTERISTICS, _msgSender()), "NftHero: must have viewer of characteristics role to get attack");
+
+    return super.getAttack(tokenId);
+  }
+
+  /**
+    * Requirements:
+    *
+    * - the caller must have the `VIEWER_OF_CHARACTERISTICS`.
+    */
+  function getDefense(uint256 tokenId) public view override returns(uint256) {
+    require(hasRole(VIEWER_OF_CHARACTERISTICS, _msgSender()), "NftHero: must have viewer of characteristics role to get defense");
+
+    return super.getDefense(tokenId);
+  }
+
+  /**
+    * Requirements:
+    *
+    * - the caller must have the `VIEWER_OF_CHARACTERISTICS`.
+    */
+  function getMining(uint256 tokenId) public view override returns(uint256) {
+    require(hasRole(VIEWER_OF_CHARACTERISTICS, _msgSender()), "NftHero: must have viewer of characteristics role to get mining");
+
+    return super.getMining(tokenId);
+  }
+
+  /**
+    * Requirements:
+    *
+    * - the caller must have the `VIEWER_OF_CHARACTERISTICS`.
+    */
+  function getCapacity(uint256 tokenId) public view override returns(uint256) {
+    require(hasRole(VIEWER_OF_CHARACTERISTICS, _msgSender()), "NftHero: must have viewer of characteristics role to get capacity");
+
+    return super.getCapacity(tokenId);
+  }
+
+  /**
+    * Requirements:
+    *
+    * - the caller must have the `VIEWER_OF_CHARACTERISTICS`.
+    */
+  function getStamina(uint256 tokenId) public view override returns(uint256) {
+    require(hasRole(VIEWER_OF_CHARACTERISTICS, _msgSender()), "NftHero: must have viewer of characteristics role to get stamina");
+
+    return super.getStamina(tokenId);
+  }
+
+  /**
+    * Requirements:
+    *
+    * - the caller must have the `VIEWER_OF_CHARACTERISTICS`.
+    */
+  function getFortune(uint256 tokenId) public view override returns(uint256) {
+    require(hasRole(VIEWER_OF_CHARACTERISTICS, _msgSender()), "NftHero: must have viewer of characteristics role to get fortune");
+
+    return super.getFortune(tokenId);
+  }
+
+  /**
+    * Requirements:
+    *
+    * - the caller must have the `VIEWER_OF_CHARACTERISTICS`.
+    */
+  function getCharacteristics(uint256 tokenId) public view override returns(Characteristics memory) {
+    require(
+      (hasRole(VIEWER_OF_CHARACTERISTICS, _msgSender()) || ownerOf(tokenId) == _msgSender()),
+      "NftHero: must have viewer of characteristics role or be owner to get characteristics"
+    );
+
+    return super.getCharacteristics(tokenId);
   }
 
   /**
@@ -270,34 +351,32 @@ contract NftHero is
     *
     * - the caller must have the `LEVEL_INCREMENTER_ROLE`.
     */
-  function incrementLevel(uint256 tokenId) public {
-    require(hasRole(LEVEL_INCREMENTER_ROLE, _msgSender()), "NftUnit: must have level incrementer role to increment level");
+  function levelUp(uint256 tokenId, uint16[] memory characteristics) public override whenNotPaused {
+    require(hasRole(LEVEL_INCREMENTER_ROLE, _msgSender()), "NftHero: must have level incrementer role to increment level");
 
-    _level[tokenId] += 1;
+    super.levelUp(tokenId, characteristics);
   }
 
-  function getScore(uint256 tokenId) public view returns(uint256) {
-    return _score[tokenId];
+  /**
+    * Requirements:
+    *
+    * - the caller must have the `SCORE_EDITOR_ROLE`.
+    */
+  function addScore(uint256 tokenId, uint256 value) public override whenNotPaused {
+    require(hasRole(SCORE_EDITOR_ROLE, _msgSender()), "NftHero: must have score editor role to change score");
+
+    super.addScore(tokenId, value);
   }
 
-  function scorePlus(uint256 tokenId, uint256 value) public returns(bool) {
-    require(hasRole(SCORE_EDITOR_ROLE, _msgSender()), "NftUnit: must have level incrementer role to increment level");
+  /**
+    * Requirements:
+    *
+    * - the caller must have the `SCORE_EDITOR_ROLE`.
+    */
+  function subScore(uint256 tokenId, uint256 value) public override whenNotPaused {
+    require(hasRole(SCORE_EDITOR_ROLE, _msgSender()), "NftHero: must have score editor role to change score");
 
-    (bool isSuccess, uint256 newScore) = _score[tokenId].tryAdd(value);
-  
-    _score[tokenId] = newScore;
-
-    return isSuccess;
-  }
-
-  function scoreMinus(uint256 tokenId, uint256 value) public returns(bool) {
-    require(hasRole(SCORE_EDITOR_ROLE, _msgSender()), "NftUnit: must have level incrementer role to increment level");
-
-    (bool isSuccess, uint256 newScore) = _score[tokenId].trySub(value);
-  
-    _score[tokenId] = newScore;
-
-    return isSuccess;
+    super.subScore(tokenId, value);
   }
 
   /**
@@ -305,14 +384,10 @@ contract NftHero is
     *
     * - the caller must have the `ADMIN_ROLE`.
     */
-  function setTxFeeAmount(uint256 amount) public {
-    require(hasRole(ADMIN_ROLE, _msgSender()), "NftUnit: must have admin role to set fee amount");
+  function setSkillPoints(uint16 maxSkillPoints) public override {
+    require(hasRole(ADMIN_ROLE, _msgSender()), "NftHero: must have admin role to set max skill points");
 
-    _txFeeAmount = amount;
-  }
-
-  function txFeeAmount() public view returns(uint256) {
-    return _txFeeAmount;
+    super.setSkillPoints(maxSkillPoints);
   }
 
   /**
@@ -320,14 +395,10 @@ contract NftHero is
     *
     * - the caller must have the `ADMIN_ROLE`.
     */
-  function setFeeToken(address tokenAddress) public {
-    require(hasRole(ADMIN_ROLE, _msgSender()), "NftUnit: must have admin role to set fee token");
+  function setMultiplierOfCharacteristics(uint256 factorC) public override {
+    require(hasRole(ADMIN_ROLE, _msgSender()), "NftHero: must have admin role to set multiplier of characteristics");
 
-    _feeToken = tokenAddress;
-  }
-
-  function feeToken() public view returns(address) {
-    return _feeToken;
+    super.setMultiplierOfCharacteristics(factorC);
   }
 
   /**
@@ -335,20 +406,20 @@ contract NftHero is
     *
     * - the caller must have the `ADMIN_ROLE`.
     */
-  function setFeeRecipient(address feeRecipientAddress) public {
-    require(hasRole(ADMIN_ROLE, _msgSender()), "NftUnit: must have admin role to set fee recipient");
+  function setScoreFactorA(uint256 factorA) public override {
+    require(hasRole(ADMIN_ROLE, _msgSender()), "NftHero: must have admin role to set factor A for score");
 
-    _feeRecipient = feeRecipientAddress;
+    super.setScoreFactorA(factorA);
   }
 
-  function feeRecipient() public view returns(address) {
-    return _feeRecipient;
-  }
+  /**
+    * Requirements:
+    *
+    * - the caller must have the `ADMIN_ROLE`.
+    */
+  function setScoreFactorC(uint256 factorC) public override {
+    require(hasRole(ADMIN_ROLE, _msgSender()), "NftHero: must have admin role to set factor C for score");
 
-  function _payTxFee(address from) internal {
-    if (_txFeeAmount > 0 && _feeToken != address(0) && _feeRecipient != address(0)) {
-      ERC20 token = ERC20(_feeToken);
-      token.transferFrom(from, _feeRecipient, _txFeeAmount);
-    }
+    super.setScoreFactorC(factorC);
   }
 }

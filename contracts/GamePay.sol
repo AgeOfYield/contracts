@@ -108,4 +108,30 @@ contract GamePay is AccessControl, Pausable {
     require(hasRole(ADMIN_ROLE, _msgSender()), "GamePay: must have admin role to set AOY token address");
     aoyAddress = contractAddress;
   }
+
+  /**
+    * @dev Pauses creation heroes.
+    *
+    * Requirements:
+    *
+    * - the caller must have the `PAUSER_ROLE`.
+    */
+  function pause() public {
+    require(hasRole(PAUSER_ROLE, _msgSender()), "GamePlayersActions: must have pauser role to pause");
+
+    _pause();
+  }
+
+  /**
+    * @dev Unpauses creation heroes.
+    *
+    * Requirements:
+    *
+    * - the caller must have the `PAUSER_ROLE`.
+    */
+  function unpause() public {
+    require(hasRole(PAUSER_ROLE, _msgSender()), "GamePlayersActions: must have pauser role to unpause");
+
+    _unpause();
+  }
 }

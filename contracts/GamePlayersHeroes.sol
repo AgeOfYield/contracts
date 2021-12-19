@@ -2,9 +2,10 @@
 pragma solidity ^0.8.6;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
+import "./lib/Math2d.sol";
 import "./UseGameHeroCoordinates.sol";
 import "./UseGameSpawn.sol";
-import "./UseHeroBalance.sol";
+import "./HeroBalance/UseHeroBalance.sol";
 import "./NftHero/UseNftHero.sol";
 import "./NftHero/abstract/HeroCharacteristics.sol";
 
@@ -55,31 +56,13 @@ contract GamePlayersHeroes is
     return heroBalance.balanceOf(tokenAddress, tokenId);
   }
 
-  function deposit(address tokenAddress, uint256 tokenId, uint256 amount) public {
+  function getCoordinates(uint256 tokenId) public view returns(Math2d.Point memory) {
     require(
       gameSpawn.ownerOf(tokenId) == _msgSender(),
       ""
     );
 
-    heroBalance.deposit(tokenAddress, tokenId, amount);
-  }
-
-  function withdrawal(address tokenAddress, uint256 tokenId, uint256 amount) public {
-    require(
-      gameSpawn.ownerOf(tokenId) == _msgSender(),
-      ""
-    );
-
-    heroBalance.withdrawal(tokenAddress, tokenId, amount);
-  }
-
-  function levelUp(uint256 tokenId, uint16[] memory characteristics) public {
-    require(
-      gameSpawn.ownerOf(tokenId) == _msgSender(),
-      ""
-    );
-
-    nftHero.levelUp(tokenId, characteristics);
+    return gameHeroCoordinates.getCoordinates(tokenId);
   }
 
   /**

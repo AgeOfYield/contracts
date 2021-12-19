@@ -5,21 +5,26 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/security/Pausable.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
-import "./NftHero/UseNftHero.sol";
-import "./UseGamePay.sol";
-import "./UseGameSpawn.sol";
+import "./abstract/AvailableTokens.sol";
+import "../NftHero/UseNftHero.sol";
+import "../UseGamePay.sol";
+import "../UseGameSpawn.sol";
 
-contract HeroBalance is UseGamePay, UseGameSpawn, UseNftHero, AccessControl, Pausable {
+contract HeroBalance is UseGamePay, UseGameSpawn, UseNftHero, AvailableTokens, AccessControl, Pausable {
   using SafeMath for uint256;
 
   address public aoyAddress;
   
-  bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
   bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
+  bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
   bytes32 public constant DEPOSIT_ROLE = keccak256("DEPOSIT_ROLE");
   bytes32 public constant WITHDRAWAL_ROLE = keccak256("WITHDRAWAL_ROLE");
+  bytes32 public constant MOVE_BALANCE_ROLE = keccak256("MOVE_BALANCE_ROLE");
+  bytes32 public constant BALANCE_VIEWER_ROLE = keccak256("BALANCE_VIEWER_ROLE");
   bytes32 public constant REDUCE_BALANCE_ROLE = keccak256("REDUCE_BALANCE_ROLE");
+  bytes32 public constant CAPACITY_VIEWER_ROLE = keccak256("CAPACITY_VIEWER_ROLE");
   bytes32 public constant INCREASE_BALANCE_ROLE = keccak256("INCREASE_BALANCE_ROLE");
+  bytes32 public constant WITHDRAWAL_ACCAMULATED_TOKENS_ROLE = keccak256("WITHDRAWAL_ACCAMULATED_TOKENS_ROLE");
 
   mapping(uint256 => mapping(address => uint256)) private _balances;
   mapping(address => uint256) private _totalBalances;
@@ -28,24 +33,49 @@ contract HeroBalance is UseGamePay, UseGameSpawn, UseNftHero, AccessControl, Pau
   constructor() {
     _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
 
-    _setupRole(PAUSER_ROLE, _msgSender());
     _setupRole(ADMIN_ROLE, _msgSender());
+    _setupRole(PAUSER_ROLE, _msgSender());
     _setupRole(DEPOSIT_ROLE, _msgSender());
     _setupRole(WITHDRAWAL_ROLE, _msgSender());
+    _setupRole(BALANCE_VIEWER_ROLE, _msgSender());
     _setupRole(REDUCE_BALANCE_ROLE, _msgSender());
+    _setupRole(CAPACITY_VIEWER_ROLE, _msgSender());
     _setupRole(INCREASE_BALANCE_ROLE, _msgSender());
+    _setupRole(WITHDRAWAL_ACCAMULATED_TOKENS_ROLE, _msgSender());
 
     _pause();
   }
 
   /**
-    * @dev Returns the amount of tokens owned by `tokenId`.
+    * @dev See {HeroBalance-_balanceOf}.
     */
   function balanceOf(address tokenAddress, uint256 tokenId) public view returns (uint256) {
+    require(hasRole(BALANCE_VIEWER_ROLE, _msgSender()), "HeroBalance: must have balance viewer role to deposit");
+
+    return _balanceOf(tokenAddress, tokenId);
+  }
+
+  /**
+    * @dev Returns the amount of tokens owned by `tokenId`.
+    */
+  function _balanceOf(address tokenAddress, uint256 tokenId) public view returns (uint256) {
     return _balances[tokenId][tokenAddress];
   }
 
+  /**
+    * @dev See {GamePay-_getCapacity}.
+    *
+    * Requirements:
+    *
+    * - the caller must have the `DEPOSIT_ROLE`.
+    */
   function getCapacity(address tokenAddress, uint256 tokenId) public view returns (uint256) {
+    require(hasRole(CAPACITY_VIEWER_ROLE, _msgSender()), "HeroBalance: must have capacity viewer role to get capacity");
+
+    return _getCapacity(tokenAddress, tokenId);
+  }
+
+  function _getCapacity(address tokenAddress, uint256 tokenId) public view returns (uint256) {
     uint256 capacity = nftHero.getCapacity(tokenId);
 
     return _capacityMul[tokenAddress].mul(capacity);
@@ -63,8 +93,8 @@ contract HeroBalance is UseGamePay, UseGameSpawn, UseNftHero, AccessControl, Pau
     require(hasRole(DEPOSIT_ROLE, _msgSender()), "HeroBalance: must have deposit role to deposit");
 
     address heroOwner = gameSpawn.ownerOf(tokenId);
-    uint256 capacity = getCapacity(tokenAddress, tokenId);
-    uint256 balance = balanceOf(tokenAddress, tokenId);
+    uint256 capacity = _getCapacity(tokenAddress, tokenId);
+    uint256 balance = _balanceOf(tokenAddress, tokenId);
 
     require(capacity >= balance.add(amount), "HeroBalance: limit exceeded");
 
@@ -144,7 +174,7 @@ contract HeroBalance is UseGamePay, UseGameSpawn, UseNftHero, AccessControl, Pau
   }
 
   function _reduceBalance(address tokenAddress, uint256 tokenId, uint256 amount) internal {
-    require(balanceOf(tokenAddress, tokenId) >= amount, "HeroBalance: amount exceeds balance");
+    require(_balanceOf(tokenAddress, tokenId) >= amount, "HeroBalance: amount exceeds balance");
 
     _balances[tokenId][tokenAddress] = _balances[tokenId][tokenAddress].sub(amount);
     _totalBalances[tokenAddress] = _totalBalances[tokenAddress].sub(amount);
@@ -152,12 +182,114 @@ contract HeroBalance is UseGamePay, UseGameSpawn, UseNftHero, AccessControl, Pau
 
   function _increaseBalance(address tokenAddress, uint256 tokenId, uint256 amount) internal {
     uint256 capacity = nftHero.getCapacity(tokenId);
-    uint256 newBalance = balanceOf(tokenAddress, tokenId);
+    uint256 newBalance = _balanceOf(tokenAddress, tokenId);
 
     require(_capacityMul[tokenAddress].mul(capacity) <= newBalance, "");
 
     _balances[tokenId][tokenAddress] = _balances[tokenId][tokenAddress].add(newBalance);
     _totalBalances[tokenAddress] += _totalBalances[tokenAddress].add(amount);
+  }
+
+  /**
+    * See {HeroBalance-_moveBalance}.
+    *
+    * Requirements:
+    *
+    * - the caller must have the `MOVE_BALANCE_ROLE`.
+    */
+  function moveAllBalance(uint256 from, uint256 to, uint8 fee) public {
+    require(hasRole(MOVE_BALANCE_ROLE, _msgSender()), "HeroBalance: must have move balance role to move balance");
+    require(fee < 100, "HeroBalance: fee is too high");
+
+    address[100] memory availableTokens = _availableTokens;
+    uint8 availableTokensLength = _availableTokensLength;
+
+    for (uint8 index = 0; index < availableTokensLength; index++) { 
+      _moveBalance(from, to, availableTokens[index], fee);
+    }
+  }
+
+  /**
+    * See {HeroBalance-_moveBalance}.
+    *
+    * Requirements:
+    *
+    * - the caller must have the `MOVE_BALANCE_ROLE`.
+    */
+  function moveBalance(uint256 from, uint256 to, address tokenAddress, uint8 fee) public {
+    require(hasRole(MOVE_BALANCE_ROLE, _msgSender()), "HeroBalance: must have move balance role to move balance");
+    require(fee < 100, "HeroBalance: fee is too high");
+
+    _moveBalance(from, to, tokenAddress, fee);
+  }
+
+  function _moveBalance(uint256 from, uint256 to, address tokenAddress, uint8 fee) internal {
+    uint256 fromBalance = _balances[from][tokenAddress];
+    uint256 tokenFee = fromBalance.mul(fee).div(100);
+
+    _balances[to][tokenAddress] = _balances[to][tokenAddress].add(fromBalance.sub(tokenFee));
+
+    delete _balances[from][tokenAddress];
+
+    _totalBalances[tokenAddress] = _totalBalances[tokenAddress].sub(tokenFee);
+  }
+
+  /**
+    * Requirements:
+    *
+    * - the caller must have the `ADMIN_ROLE`.
+    */
+  function addAvailableToken(address tokenAddress) public {
+    require(hasRole(ADMIN_ROLE, _msgSender()), "HeroBalance: must have admin role to add available token");
+
+    _addAvailableToken(tokenAddress);
+  }
+
+  /**
+    * Requirements:
+    *
+    * - the caller must have the `ADMIN_ROLE`.
+    */
+  function removeAvailableToken(uint8 index) public {
+    require(hasRole(ADMIN_ROLE, _msgSender()), "HeroBalance: must have admin role to remove available token");
+
+    _removeAvailableToken(index);
+  }
+
+  /**
+    * @dev Get amount of free tokens.
+    *
+    * Requirements:
+    *
+    * - the caller must have the `WITHDRAWAL_ACCAMULATED_TOKENS_ROLE`.
+    */
+  function getFreeBalance(address tokenAddress) public view returns(uint256) {
+    require(hasRole(WITHDRAWAL_ACCAMULATED_TOKENS_ROLE, _msgSender()), "HeroBalance: must have withdrawal accamulated tokens role to get free amount");
+
+    IERC20 token = IERC20(tokenAddress);
+
+    uint256 balance = token.balanceOf(address(this));
+
+    require(balance > _totalBalances[tokenAddress], "HeroBalance: User balance is greater than contract balance");
+
+    return balance.sub(_totalBalances[tokenAddress]);
+  }
+
+  /**
+    * @dev Withdrawal of accumulated tokens.
+    *
+    * Requirements:
+    *
+    * - the caller must have the `WITHDRAWAL_ACCAMULATED_TOKENS_ROLE`.
+    */
+  function withdrawalAccamulatedTokens(address recipient, address tokenAddress) public {
+    require(!paused(), "HeroBalance: Paused");
+    require(hasRole(WITHDRAWAL_ACCAMULATED_TOKENS_ROLE, _msgSender()), "HeroBalance: must have withdrawal accamulated tokens role to withdrawal");
+
+    IERC20 token = IERC20(tokenAddress);
+    uint256 freeBalance = getFreeBalance(tokenAddress);
+
+    token.transfer(recipient, freeBalance);
   }
 
   /**

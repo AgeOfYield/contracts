@@ -36,8 +36,8 @@ contract GameNftHeroCreator is UseNftHero, UseGamePay, AccessControl, Pausable {
 
   uint256 public price = 10 * 10 ** 18;
 
-  InitialCharacteristics[] public initialCharacteristics;
-  FactionMulCharacteristics[] public factionMulCharacteristics;
+  InitialCharacteristics[10] public _initialCharacteristics;
+  FactionMulCharacteristics[4] public _factionMulCharacteristics;
 
   constructor() {
     _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
@@ -56,8 +56,10 @@ contract GameNftHeroCreator is UseNftHero, UseGamePay, AccessControl, Pausable {
     require(!paused(), "HeroCreator: Hero creation paused");
     require(price > 0, "HeroCreator: Price not setted");
     require(!Address.isContract(_msgSender()), "HeroCreator: sender is contract");
-    require(initialCharacteristics[race].exists, "HeroCreator: initialCharacteristics not setted");
-    require(factionMulCharacteristics[faction].exists, "HeroCreator: factionMulCharacteristics not setted");
+    InitialCharacteristics memory initialCharacteristicsOfRace = _initialCharacteristics[race];
+    FactionMulCharacteristics memory factionMulCharacteristics = _factionMulCharacteristics[faction];
+    require(initialCharacteristicsOfRace.exists, "HeroCreator: initialCharacteristics not setted");
+    require(factionMulCharacteristics.exists, "HeroCreator: factionMulCharacteristics not setted");
 
     gamePay.payAoy(_msgSender(), price);
 
@@ -65,38 +67,38 @@ contract GameNftHeroCreator is UseNftHero, UseGamePay, AccessControl, Pausable {
     HeroCharacteristics.Characteristics memory characteristics = HeroCharacteristics.Characteristics(
       // Attack
       getHeroCharacteristicValue(
-        initialCharacteristics[race].attack,
-        factionMulCharacteristics[faction].attack,
+        initialCharacteristicsOfRace.attack,
+        factionMulCharacteristics.attack,
         divisorOfCharacteristics
       ),
       // Defense
       getHeroCharacteristicValue(
-        initialCharacteristics[race].defense,
-        factionMulCharacteristics[faction].defense,
+        initialCharacteristicsOfRace.defense,
+        factionMulCharacteristics.defense,
         divisorOfCharacteristics
       ),
       // Mining
       getHeroCharacteristicValue(
-        initialCharacteristics[race].mining,
-        factionMulCharacteristics[faction].mining,
+        initialCharacteristicsOfRace.mining,
+        factionMulCharacteristics.mining,
         divisorOfCharacteristics
       ),
       // Capacity
       getHeroCharacteristicValue(
-        initialCharacteristics[race].capacity,
-        factionMulCharacteristics[faction].capacity,
+        initialCharacteristicsOfRace.capacity,
+        factionMulCharacteristics.capacity,
         divisorOfCharacteristics
       ),
       // Stamina
       getHeroCharacteristicValue(
-        initialCharacteristics[race].stamina,
-        factionMulCharacteristics[faction].stamina,
+        initialCharacteristicsOfRace.stamina,
+        factionMulCharacteristics.stamina,
         divisorOfCharacteristics
       ),
       // Fortune
       getHeroCharacteristicValue(
-        initialCharacteristics[race].fortune,
-        factionMulCharacteristics[faction].fortune,
+        initialCharacteristicsOfRace.fortune,
+        factionMulCharacteristics.fortune,
         divisorOfCharacteristics
       )
     );
@@ -116,8 +118,8 @@ contract GameNftHeroCreator is UseNftHero, UseGamePay, AccessControl, Pausable {
   /** 
     * @dev Return initial characteristics for hero.
     */
-  function getInitialCharacteristics() public view returns(InitialCharacteristics[] memory) {
-    return initialCharacteristics;
+  function getInitialCharacteristics() public view returns(InitialCharacteristics[10] memory) {
+    return _initialCharacteristics;
   }
 
 
@@ -128,17 +130,17 @@ contract GameNftHeroCreator is UseNftHero, UseGamePay, AccessControl, Pausable {
     *
     * - the caller must have the `ADMIN_ROLE`.
     */
-  function setInitialCharacteristics(uint256 index, InitialCharacteristics memory characteristics) public {
+  function setInitialCharacteristics(uint256 index, InitialCharacteristics calldata characteristics) public {
     require(hasRole(ADMIN_ROLE, _msgSender()), "HeroCreator: must have admin role to set characteristics");
 
-    initialCharacteristics[index] = characteristics;
+    _initialCharacteristics[index] = characteristics;
   }
 
   /** 
     * @dev
     */
-  function getFactionMulCharacteristics() public view returns(FactionMulCharacteristics[] memory) {
-    return factionMulCharacteristics;
+  function getFactionMulCharacteristics() public view returns(FactionMulCharacteristics[4] memory) {
+    return _factionMulCharacteristics;
   }
 
 
@@ -152,7 +154,7 @@ contract GameNftHeroCreator is UseNftHero, UseGamePay, AccessControl, Pausable {
   function setFactionMulCharacteristics(uint256 index, FactionMulCharacteristics memory mulCharacteristics) public {
     require(hasRole(ADMIN_ROLE, _msgSender()), "HeroCreator: must have admin role to set factionMulCharacteristics");
 
-    factionMulCharacteristics[index] = mulCharacteristics;
+    _factionMulCharacteristics[index] = mulCharacteristics;
   }
 
   /**
@@ -182,19 +184,6 @@ contract GameNftHeroCreator is UseNftHero, UseGamePay, AccessControl, Pausable {
   }
 
   /**
-    * @dev Set NFT Heroes contract.
-    *
-    * Requirements:
-    *
-    * - the caller must have the `ADMIN_ROLE`.
-    */
-  function setNftHeroAddress(address nftHeroAddress) public {
-    require(hasRole(ADMIN_ROLE, _msgSender()), "HeroCreator: must have admin role to set NFT Hero contract");
-
-    _setNftHeroAddress(nftHeroAddress);
-  }
-
-  /**
     * @dev Set price.
     *
     * Requirements:
@@ -205,6 +194,19 @@ contract GameNftHeroCreator is UseNftHero, UseGamePay, AccessControl, Pausable {
     require(hasRole(ADMIN_ROLE, _msgSender()), "HeroCreator: must have admin role to set price");
 
     price = newPrice;
+  }
+
+  /**
+    * @dev Set NFT Heroes contract.
+    *
+    * Requirements:
+    *
+    * - the caller must have the `ADMIN_ROLE`.
+    */
+  function setNftHeroAddress(address nftHeroAddress) public {
+    require(hasRole(ADMIN_ROLE, _msgSender()), "HeroCreator: must have admin role to set NFT Hero contract");
+
+    _setNftHeroAddress(nftHeroAddress);
   }
   
   /**

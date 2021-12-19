@@ -1,0 +1,19 @@
+{
+  "name": "age-of-yield",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "compile": "truffle compile",
+    "testnet": "truffle migrate --network testnet --compile-none",
+    "local": "truffle migrate --network local"
+  },
+  "dependencies": {
+    "@chainlink/contracts": "^0.2.2",
+    "@openzeppelin/contracts": "4.3.2"
+  },
+  "devDependencies": {
+    "@truffle/hdwallet-provider": "1.5.1",
+    "truffle": "5.4.15"
+  }
+}

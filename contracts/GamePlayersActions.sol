@@ -8,7 +8,7 @@ import "@openzeppelin/contracts/access/AccessControl.sol";
 import "./UseGameHeroCoordinates.sol";
 import "./UseGameSpawn.sol";
 import "./UseGamePay.sol";
-import "./UseHeroBalance.sol";
+import "./HeroBalance/UseHeroBalance.sol";
 import "./UseGameHeroStamina.sol";
 import "./NftHero/UseNftHero.sol";
 
@@ -26,6 +26,8 @@ contract GamePlayersActions is
 
   bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
   bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
+
+  event Attack(bool win, uint256 indexed targetTokenId, uint256 indexed tokenId);
 
   constructor() {
     _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
@@ -54,10 +56,37 @@ contract GamePlayersActions is
     }
   }
 
+  function levelUp(uint256 tokenId, uint16[] memory characteristics) public {
+    require(
+      gameSpawn.ownerOf(tokenId) == _msgSender(),
+      ""
+    );
+
+    nftHero.levelUp(tokenId, characteristics);
+  }
+
+
+  function deposit(address tokenAddress, uint256 tokenId, uint256 amount) public {
+    require(
+      gameSpawn.ownerOf(tokenId) == _msgSender(),
+      ""
+    );
+
+    heroBalance.deposit(tokenAddress, tokenId, amount);
+  }
+
+  function withdrawal(address tokenAddress, uint256 tokenId, uint256 amount) public {
+    require(
+      gameSpawn.ownerOf(tokenId) == _msgSender(),
+      ""
+    );
+
+    heroBalance.withdrawal(tokenAddress, tokenId, amount);
+  }
+
   function move(uint256 tokenId, Math2d.Point memory point, uint256 amount, bool useHeroBalance) public {
     require(!paused(), "GamePlayersActions: paused");
-    address tokenOwner = gameSpawn.ownerOf(tokenId);
-    require(tokenOwner == _msgSender());
+    require(gameSpawn.ownerOf(tokenId) == _msgSender());
 
     uint256 usedStamina = calcStaminaByDistance(
       gameHeroCoordinates.calcDistance(tokenId, point),
@@ -83,13 +112,9 @@ contract GamePlayersActions is
 
     gameHeroStamina.spendStamina(tokenId, usedStamina);
 
-    uint256 heroFortune = nftHero.getFortune(tokenId);
-    uint256 targetFortune = nftHero.getFortune(targetTokenId);
-
     uint256 tmpRandom = 1000000000000;
-    uint256 maxRandomValue = 1000000000000;
-    uint256 heroRandom = tmpRandom.mod(maxRandomValue, "").mul(heroFortune);
-    uint256 targetRandom = tmpRandom.mod(maxRandomValue, "").mul(targetFortune);
+    uint256 heroRandom = tmpRandom.mod(tmpRandom, "").mul(nftHero.getFortune(tokenId));
+    uint256 targetRandom = tmpRandom.mod(tmpRandom, "").mul(nftHero.getFortune(targetTokenId));
 
     uint256 heroAttack = nftHero.getAttack(tokenId);
     uint256 targetDefense = nftHero.getDefense(targetTokenId);
@@ -97,9 +122,15 @@ contract GamePlayersActions is
     paymentAction(tokenId, amount, useHeroBalance);
 
     if (heroAttack.add(heroRandom.mul(heroAttack)) > targetDefense.add(targetRandom.mul(targetDefense))) {
-      // victory
+      // victory  
+      heroBalance.moveAllBalance(targetTokenId, tokenId, 50);
+
+      emit Attack(true, targetTokenId, tokenId);
+  
       return true;
     } else {
+      emit Attack(false, targetTokenId, tokenId);
+
       return false;
     }
   }

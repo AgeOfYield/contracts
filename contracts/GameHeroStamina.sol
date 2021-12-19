@@ -146,8 +146,21 @@ contract GameHeroStamina is UseNftHero, UseGameSpawn, AccessControl {
     *
     * - the caller must have the `ADMIN_ROLE`.
     */
-  function setNftHeroAddress(address nftHeroAddress) public {
-    require(hasRole(ADMIN_ROLE, _msgSender()), "HeroStamina: must have admin role to set NFT Hero contract");
-    _setNftHeroAddress(nftHeroAddress);
+  function setNftHeroAddress(address contractAddress) public {
+    require(hasRole(ADMIN_ROLE, _msgSender()), "HeroStamina: must have admin role to set contract address");
+    _setNftHeroAddress(contractAddress);
+  }
+
+  /**
+    * @dev Set Game spawn contract.
+    *
+    * Requirements:
+    *
+    * - the caller must have the `ADMIN_ROLE`.
+    */
+  function setGameSpawnAddress(address contractAddress) public {
+    require(hasRole(ADMIN_ROLE, _msgSender()), "HeroStamina: must have admin role to set contract address");
+
+    _setGameSpawnAddress(contractAddress);
   }
 }

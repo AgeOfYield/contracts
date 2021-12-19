@@ -83,6 +83,8 @@ contract NftHero is
     _setupRole(LEVEL_INCREMENTER_ROLE, _msgSender());
     _setupRole(SCORE_EDITOR_ROLE, _msgSender());
     _setupRole(VIEWER_OF_CHARACTERISTICS, _msgSender());
+
+    _pause();
   }
 
   function _baseURI() internal view virtual override returns (string memory) {
